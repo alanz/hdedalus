@@ -15,6 +15,16 @@ build-type:          Simple
 cabal-version:       >=1.8
 
 executable hdedalus
-  -- main-is:             
+  main-is:             main.hs
+  Hs-Source-Dirs:      src
   -- other-modules:       
   build-depends:       base ==4.5.*
+                     , containers
+                     , datalog
+                     , hashable
+                     , hedn
+                     , HUnit
+                     , test-framework
+                     , test-framework-hunit
+                     , text
+                     , time
