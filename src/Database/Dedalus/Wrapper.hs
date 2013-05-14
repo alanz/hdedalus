@@ -18,15 +18,20 @@ type TransactionId = String
 -- instance Hashable TransactionId where
 --   hashWithSalt s t  = s `hashWithSalt` t `hashWithSalt` (1 :: Int)
 
-data Ref = Ref !Text !Text
+type PartitionId = Text -- ^Identifies a specific partition in the db
+
+data Ref = RefKnown !PartitionId !Text -- ^Actual reference
+         | RefTemp !PartitionId !Int   -- ^Temporary reference to be
+                                -- be resolved by transaction
            deriving (Eq,Ord,Show)
 
 instance Hashable Ref where
-  hashWithSalt s (Ref d v)  = s `hashWithSalt` d `hashWithSalt` v `hashWithSalt` (1 :: Int)
+  hashWithSalt s (RefKnown d v)  = s `hashWithSalt` d `hashWithSalt` v `hashWithSalt` (1 :: Int)
+  hashWithSalt s (RefTemp  d v)  = s `hashWithSalt` d `hashWithSalt` v `hashWithSalt` (2 :: Int)
 
 -- |Base types that can be stored in the database
 data ValueInfo = TID !TransactionId -- ^Transaction ID. Will be a timestamp initially
-               | VR !Ref -- ^Ref type
+               | VR !Ref  -- ^Ref type
                | VA !Text -- ^Attribute
                | VV !Text -- ^Value
                | VL ![ValueInfo] -- ^values for many relation
@@ -76,6 +81,11 @@ As a transaction
   :db/doc "A person's name"}
  [:db/add :db.part/db :db.install/attribute #db/id[:db.part/db -1]]]
 
+NOTE: :db/add seems to reference partition, xxx, reference
+      [:db/add entity-id attribute value]
+
+NOTE: datom is entity,attribute,value in a transaction
+
 Simpler form
 
 [{:db/id #db/id[:db.part/db]
@@ -88,10 +98,10 @@ Simpler form
 Both explode to the following datoms, in (tid,entity,attribute,value)
 form, where tid is the transaction id.
 
-[ (tid,#db/id[:db.part/db],:db/ident,      :person/name)
-, (tid,#db/id[:db.part/db],:db/valueType,  :db.type/string)
-, (tid,#db/id[:db.part/db],:db/cardinality,:db.cardinality/one)
-, (tid,#db/id[:db.part/db],:db/doc,        "A person's name")
+[ (tid,#db/id[:db.part/db -1],:db/ident,      :person/name)
+, (tid,#db/id[:db.part/db -1],:db/valueType,  :db.type/string)
+, (tid,#db/id[:db.part/db -1],:db/cardinality,:db.cardinality/one)
+, (tid,#db/id[:db.part/db -1],:db/doc,        "A person's name")
 ]
 
 -}
@@ -102,7 +112,8 @@ data AttributeDefinition
 
 
 -- Example attribute definition
-attrPersonName = Attribute (VR (Ref ":db.part/db" "-1"))
+attrPersonName :: AttributeDefinition
+attrPersonName = Attribute (VR (RefTemp ":db.part/db" (-1)))
                  [(VA ":db/ident",       VV ":person/name")
                  ,(VA ":db/valueType",   VV ":db.type/string")
                  ,(VA ":db/cardinality", VV ":db.cardinality/one")
@@ -133,6 +144,84 @@ schema tid definitions = makeDatabase $ do
 
 pp2 = schema tid1 [attrPersonName]
 
+-- ---------------------------------------------------------------------
+
+addAttribute db attr = do
+
+  let facts = toTransaction tid1 attr
+
+  mapM_ (assertFact db) facts
+
+bootstrap :: Maybe (Database ValueInfo)
+bootstrap = makeDatabase $ do
+
+  db <- addRelation "theDb" 4
+
+  addAttribute db attrDbInstallAttribute
+  addAttribute db attrDbInstallPartition
+  addAttribute db attrDbId
+
+  addPartition db ":db.part/db"
+  addPartition db ":db.part/tx"
+  addPartition db ":db.part/user"
+
+  -- mapM_ (assertFact db) partitionFacts
+
+-- ---------------------------------------------------------------------
+
+-- Partitions
+{-
+
+Built-in:
+ Partition	Purpose
+:db.part/db	Schema partition, used only for attributes and partition entities
+:db.part/tx	Transaction partition, used only for transaction entities
+:db.part/user	User partition, for application entities
+
+Adding a new partition
+
+[{:db/id #db/id[:db.part/db -1]
+  :db/ident :communities}
+ [:db/add :db.part/db :db.install/partition #db/id[:db.part/db -1]]]
+
+-}
+
+addPartition db partitionName = do
+  let attr = Attribute (VR (RefTemp ":db.part/db" (-1)))
+                  [(VA ":db/ident", VV partitionName)]
+  addAttribute db attr
+
+-- ---------------------------------------------------------------------
+-- System attributes
+--  :db.install/attribute
+--  :db.install/partition
+--  :db.ident    (provides alias for an id)
+
+attrDbInstallAttribute :: AttributeDefinition
+attrDbInstallAttribute = Attribute (VR (RefTemp ":db.part/db" (-1)))
+                 [(VA ":db/ident",       VV ":db.install/attribute")
+                 ,(VA ":db/valueType",   VV ":db.type/string")
+                 ,(VA ":db/cardinality", VV ":db.cardinality/one")
+                 ,(VA ":db/doc",         VV "What attributes are installed")
+                 ]
+
+attrDbInstallPartition :: AttributeDefinition
+attrDbInstallPartition = Attribute (VR (RefTemp ":db.part/db" (-1)))
+                 [(VA ":db/ident",       VV ":db.install/partition")
+                 ,(VA ":db/valueType",   VV ":db.type/string")
+                 ,(VA ":db/cardinality", VV ":db.cardinality/one")
+                 ,(VA ":db/doc",         VV "What partition entity is installed in")
+                 ]
+
+attrDbId :: AttributeDefinition
+attrDbId = Attribute (VR (RefTemp ":db.part/db" (-1)))
+                 [(VA ":db/ident",       VV ":db.ident")
+                 ,(VA ":db/valueType",   VV ":db.type/ref")
+                 ,(VA ":db/cardinality", VV ":db.cardinality/one")
+                 ,(VA ":db/doc",         VV "Name for an entity id")
+                 ]
+
+-- ---------------------------------------------------------------------
 {-
 
 Dedalus0 restrictions
@@ -177,7 +266,7 @@ Positive and Negative Predicates:
   Like r_pos, the use of r_neg in the heads and bodies of rules is
   unrestricted.
 
-Guarded EDB: 
+Guarded EDB:
 
   No well-formed Dedalus0 rule may involve any extensional predicate,
   except for a rule of the form above.
