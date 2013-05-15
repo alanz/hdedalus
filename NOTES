@@ -1,0 +1,55 @@
+
+
+General flow
+-----------
+
+Permanent Extensional Db, backed up to persistent store.
+  - Must be able to load and save it.
+  - Incremental save at some point.
+
+Query runs against it, generates Intensional Db in the process, and
+eventually results, returned to requesting process.
+
+requesting process may decide, based on results, to add more facts to
+the EDB. It does so by means of a transaction, which runs through a
+single point for serialisation, and/or makes use of DEDALUS for the
+individual transacting points.
+
+
+
+So we need the following kinds of API calls
+
+1. Create new database (Tx)
+
+   This includes installing the bootstrap data, namely the initial set
+   of attributes, partitions, etc.
+
+2. Get a copy of the EDB from the database (from Tx, but not in one)
+
+4. Run query on db (local)
+
+5. assert facts for db (Tx)
+
+
+----------------------
+
+Implementation
+
+a.  Store raw facts in backing store as 4-tuples.
+
+   (id,attr,val,txid)
+
+   The id encodes a partition and a unique val, so the storage can be
+   split
+
+b. Only transactor can write to backing store
+
+c. Backing store values can be propagated to peers
+
+d. Peers have or can get a copy of the backing db
+
+
+
+
+
+

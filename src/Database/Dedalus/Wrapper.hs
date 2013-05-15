@@ -4,9 +4,12 @@ module Database.Dedalus.Wrapper
     (
       ValueInfo(..)
     , AttributeDefinition(..)
+    , TransactionId(..)
+    , Ref(..)
     ) where
 
 import Data.Hashable
+import Data.Maybe
 import Data.Text hiding (map,concatMap)
 import Database.Datalog
 
@@ -123,6 +126,9 @@ attrPersonName = Attribute (VR (RefTemp ":db.part/db" (-1)))
 tid1 :: TransactionId
 tid1 = "tid1"
 
+-- |Convert an attribute definition, containing a reference and a set
+-- of values to a list of (tid,ref,attr,val) tuples in list form,
+-- suitable for storage in an external db
 toTransaction :: TransactionId -> AttributeDefinition
   -> [[ValueInfo]]
 toTransaction tid definition = res
@@ -220,6 +226,23 @@ attrDbId = Attribute (VR (RefTemp ":db.part/db" (-1)))
                  ,(VA ":db/cardinality", VV ":db.cardinality/one")
                  ,(VA ":db/doc",         VV "Name for an entity id")
                  ]
+
+-- ---------------------------------------------------------------------
+
+dbName = "mydb"
+
+newDataBase :: Database ValueInfo
+newDataBase = fromJust maybeDb
+  where
+    maybeDb = mkDb
+
+    mkDb :: Maybe (Database ValueInfo)
+    mkDb = makeDatabase $ do
+        db <- addRelation dbName 4
+        mapM_ (assertFact db) []
+
+-- ---------------------------------------------------------------------
+
 
 -- ---------------------------------------------------------------------
 {-
