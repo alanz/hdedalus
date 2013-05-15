@@ -3,7 +3,8 @@
 
 module Database.Dedalus.External
     (
-    Tuple(..)
+      Tuple(..)
+    , buildEdb
     ) where
 
 import Data.Hashable
@@ -29,6 +30,17 @@ toFact :: Tuple -> [ValueInfo]
 toFact (Tuple tid ref (AttrName attr) (AttrValue val)) = [TID tid,VR ref,VA attr, VV val]
 
 
+-- |Build the extensional database from the tuples provided in
+-- external storage format
+buildEdb :: [Tuple] -> Database ValueInfo
+buildEdb tuples = fromJust maybeDb
+  where
+   maybeDb = mkDb (map toFact tuples)
 
+   mkDb :: [[ValueInfo]] -> Maybe (Database ValueInfo)
+   mkDb facts = makeDatabase $ do
+     db <- addRelation dbName 4
+
+     mapM_ (assertFact db) facts
 
 

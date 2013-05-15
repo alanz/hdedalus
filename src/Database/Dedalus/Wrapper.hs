@@ -6,6 +6,7 @@ module Database.Dedalus.Wrapper
     , AttributeDefinition(..)
     , TransactionId(..)
     , Ref(..)
+    , dbName
     ) where
 
 import Data.Hashable
