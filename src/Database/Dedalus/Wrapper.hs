@@ -39,6 +39,7 @@ data ValueInfo = TID !TransactionId -- ^Transaction ID. Will be a timestamp init
                | VA !Text -- ^Attribute
                | VV !Text -- ^Value
                | VL ![ValueInfo] -- ^values for many relation
+               | VT !Integer     -- ^Dedalus "timestamp"
                    deriving (Eq,Ord,Show)
 
 instance Hashable ValueInfo where
@@ -47,6 +48,7 @@ instance Hashable ValueInfo where
   hashWithSalt s (VV r)  = s `hashWithSalt` r `hashWithSalt` (3 :: Int)
   hashWithSalt s (VL r)  = s `hashWithSalt` r `hashWithSalt` (4 :: Int)
   hashWithSalt s (TID r) = s `hashWithSalt` r `hashWithSalt` (5 :: Int)
+  hashWithSalt s (VT r)  = s `hashWithSalt` r `hashWithSalt` (6 :: Int)
 
 -- ---------------------------------------------------------------------
 
@@ -130,22 +132,22 @@ tid1 = "tid1"
 -- |Convert an attribute definition, containing a reference and a set
 -- of values to a list of (tid,ref,attr,val) tuples in list form,
 -- suitable for storage in an external db
-toTransaction :: TransactionId -> AttributeDefinition
+toTransaction :: TransactionId -> Integer -> AttributeDefinition
   -> [[ValueInfo]]
-toTransaction tid definition = res
+toTransaction tid ts definition = res
   where
     (Attribute ref vals) = definition
-    res = map (\(a,v) -> [TID tid,ref,a,v]) vals
+    res = map (\(a,v) -> [TID tid,ref,a,v,VT ts]) vals
 
-pp1 = toTransaction tid1 attrPersonName
+pp1 = toTransaction tid1 1 attrPersonName
 
 
 schema :: TransactionId -> [AttributeDefinition] -> Maybe (Database ValueInfo)
 schema tid definitions = makeDatabase $ do
 
-  db <- addRelation "theDb" 4
+  db <- addRelation "theDb" 5
 
-  let schemaFacts = concatMap (toTransaction tid) definitions
+  let schemaFacts = concatMap (toTransaction tid 1) definitions
 
   mapM_ (assertFact db) schemaFacts
 
@@ -155,14 +157,14 @@ pp2 = schema tid1 [attrPersonName]
 
 addAttribute db attr = do
 
-  let facts = toTransaction tid1 attr
+  let facts = toTransaction tid1 1 attr
 
   mapM_ (assertFact db) facts
 
 bootstrap :: Maybe (Database ValueInfo)
 bootstrap = makeDatabase $ do
 
-  db <- addRelation "theDb" 4
+  db <- addRelation "theDb" 5
 
   addAttribute db attrDbInstallAttribute
   addAttribute db attrDbInstallPartition
@@ -239,7 +241,7 @@ newDataBase = fromJust maybeDb
 
     mkDb :: Maybe (Database ValueInfo)
     mkDb = makeDatabase $ do
-        db <- addRelation dbName 4
+        db <- addRelation dbName 5
         mapM_ (assertFact db) []
 
 -- ---------------------------------------------------------------------

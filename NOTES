@@ -35,9 +35,10 @@ So we need the following kinds of API calls
 
 Implementation
 
-a.  Store raw facts in backing store as 4-tuples.
+a. Store raw facts in backing store as 4-tuples (5-tuples when Dedalus
+   in, to include timestamp)
 
-   (id,attr,val,txid)
+   (id,attr,val,ts,txid)
 
    The id encodes a partition and a unique val, so the storage can be
    split

@@ -24,6 +24,7 @@ executable hdedalus
                      , hashable
                      , hedn
                      , HUnit
+                     , polyparse
                      , test-framework
                      , test-framework-hunit
                      , text
