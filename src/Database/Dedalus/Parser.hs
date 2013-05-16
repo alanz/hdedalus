@@ -34,6 +34,12 @@ Examples to parse
   p(1,3)@102; 
   p_neg(1,2)@300;
 
+  -- 
+
+  seq(B)@next <- seq(A), successor(A,B), event(_); 
+  seq(A)@next <- seq(A), -event(_); 
+  seq(0);
+
 -}
 
 
@@ -43,6 +49,17 @@ data Annotation = ANone | ANext | ASpecific !Integer
                 deriving (Show)
 data Dedalus = FactList [Dedalus]
              | Fact String [String] Annotation
+             | Rule Head [Body]
+             deriving (Show)
+
+data Head = Head String [String] Annotation
+             deriving (Show)
+
+data Body = BodyList [Body]
+          | Body String [String] -- Sign
+             deriving (Show)
+
+data Sign = Add | Negate
              deriving (Show)
 
 -- ---------------------------------------------------------------------
@@ -59,7 +76,6 @@ factTP = do
   char ';'
   return f
 
-
 factP :: P Dedalus
 factP = Fact <$> word <*> headParamsP  <*> annotationSpecificP
 
@@ -74,6 +90,41 @@ annotationSpecificP = do
   char '@'
   v <- parseDec
   return (ASpecific v)
+
+anyAnnotationP :: P Annotation
+anyAnnotationP = do
+  ma <- optional $ oneOf [annotationSpecificP, annotationWordP]
+  case ma of
+    Nothing ->  return ANone
+    Just a -> return a
+
+annotationWordP :: P Annotation
+annotationWordP = do
+  matchWord "@next"
+  return ANext
+
+-- ---------------
+
+ruleP :: P Dedalus
+ruleP = Rule <$> ruleHeadP <*> many bodyP
+
+ruleHeadP :: P Head
+ruleHeadP = do
+  h <- headP
+  _ <-matchWord "<-"
+  return h
+
+headP :: P Head
+headP = Head <$> word <*> headParamsP <*> anyAnnotationP
+
+
+bodyP :: P Body
+bodyP = Body <$> word <*> headParamsP 
+
+-- ---------------
+
+matchWord :: String -> P String
+matchWord s = mapM char s
 
 char :: Char -> P Char
 char c = satisfy (==c)
@@ -104,3 +155,4 @@ tp parser xs = case runParser parser xs of
 
 tt = parseDedalus "a(C)@1;b(A)@23;c(A,B)@100;"
 
+tb = tp ruleP "p(A, B) <- e(A, B);"
