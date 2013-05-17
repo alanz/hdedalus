@@ -5,6 +5,7 @@ module Database.Dedalus.Parser
     parseDedalus
     ) where
 
+import Data.Char
 import Data.Hashable
 import Data.Maybe
 import Data.Text hiding (map,concatMap)
@@ -130,12 +131,18 @@ headP = Head <$> word <*> headParamsP <*> anyAnnotationP
 bodyP :: P Body
 -- bodyP = Body <$> word <*> headParamsP 
 bodyP = do
-  sign <- optional word
+  sign <- optional signP
   name <- word
   params <- headParamsP
   case sign of
-    Nothing   -> return (Body name params Add)
-    Just "-"  -> return (Body name params Negate)
+    Nothing -> return (Body name params Add)
+    Just _  -> return (Body name params Negate)
+
+signP :: P Sign
+signP = do
+  spaces
+  char '-'
+  return Negate
 
 -- ---------------
 
@@ -149,6 +156,8 @@ char c = satisfy (==c)
 bracketP :: Char -> Char -> P a -> P a
 bracketP beg end p = bracket (char beg) (char end) p
 
+spaces  :: P ()
+spaces  = do {many (satisfy isSpace); return ()}
 
 parseDedalus :: String -> Dedalus
 parseDedalus xs = case runParser dedalusP xs of
