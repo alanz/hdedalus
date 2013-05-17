@@ -56,7 +56,7 @@ data Head = Head String [String] Annotation
              deriving (Show)
 
 data Body = BodyList [Body]
-          | Body String [String] -- Sign
+          | Body String [String] Sign
              deriving (Show)
 
 data Sign = Add | Negate
@@ -112,7 +112,7 @@ ruleTP = do
   return r
 
 ruleP :: P Dedalus
-ruleP = Rule <$> ruleHeadP <*> (many1 bodyP)
+ruleP = Rule <$> ruleHeadP <*> bodyP `sepBy` char ','
 
 ruleHeadP :: P Head
 ruleHeadP = do
@@ -128,7 +128,14 @@ headP :: P Head
 headP = Head <$> word <*> headParamsP <*> anyAnnotationP
 
 bodyP :: P Body
-bodyP = Body <$> word <*> headParamsP 
+-- bodyP = Body <$> word <*> headParamsP 
+bodyP = do
+  sign <- optional word
+  name <- word
+  params <- headParamsP
+  case sign of
+    Nothing   -> return (Body name params Add)
+    Just "-"  -> return (Body name params Negate)
 
 -- ---------------
 
@@ -165,4 +172,5 @@ tp parser xs = case runParser parser xs of
 
 tt = parseDedalus "a(C)@1;b(A)@23;c(A,B)@100;"
 
-tb = tp ruleTP "p(A, B)@2 <- e(A, B);"
+-- tb = tp ruleTP "p(A, B)@2 <- e(A, B);"
+tb = tp ruleTP "p_pos(A, B)@next <- p_pos(A, B), -p_neg(A, B);"
