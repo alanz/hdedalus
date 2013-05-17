@@ -105,24 +105,34 @@ annotationWordP = do
 
 -- ---------------
 
+ruleTP :: P Dedalus
+ruleTP = do
+  r <- ruleP
+  char ';'
+  return r
+
 ruleP :: P Dedalus
-ruleP = Rule <$> ruleHeadP <*> many bodyP
+ruleP = Rule <$> ruleHeadP <*> (many1 bodyP)
 
 ruleHeadP :: P Head
 ruleHeadP = do
   h <- headP
-  _ <-matchWord "<-"
-  return h
+  s <- word
+  if (s /= "<-")
+    then fail $ "missing <-, got [" ++ s ++ "]"
+    else return h
+  -- _ <-matchWord "<-"
+  -- return h
 
 headP :: P Head
 headP = Head <$> word <*> headParamsP <*> anyAnnotationP
-
 
 bodyP :: P Body
 bodyP = Body <$> word <*> headParamsP 
 
 -- ---------------
 
+-- TODO: skip preceding whitespace
 matchWord :: String -> P String
 matchWord s = mapM char s
 
@@ -155,4 +165,4 @@ tp parser xs = case runParser parser xs of
 
 tt = parseDedalus "a(C)@1;b(A)@23;c(A,B)@100;"
 
-tb = tp ruleP "p(A, B) <- e(A, B);"
+tb = tp ruleTP "p(A, B)@2 <- e(A, B);"
