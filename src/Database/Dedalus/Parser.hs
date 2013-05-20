@@ -2,17 +2,23 @@
 
 module Database.Dedalus.Parser
     (
-    parseDedalus
+      parseDedalus
+    , statements
     ) where
 
 import Data.Char
+import Data.Either
 import Data.Hashable
 import Data.Maybe
 import Data.Text hiding (map,concatMap)
 import Database.Datalog
+import Database.Dedalus.Backend
 import Database.Dedalus.Wrapper
-import Text.ParserCombinators.Poly
-import Text.Parse
+-- import Text.Parse
+import Text.ParserCombinators.Poly.State
+import qualified Data.Map as Map
+import Data.Map (Map)
+
 
 -- This module based on example
 -- https://github.com/kawu/tokenize/blob/master/Text/Regex/Parse.hs
@@ -21,63 +27,72 @@ import Text.Parse
 
 Examples to parse
 
-  p(A, B) <- e(A, B);
-  q(A, B)@next <- e(A, B);
+  p(A, B) :- e(A, B).
+  q(A, B)@next :- e(A, B).
 
-  e(1, 2)@10;
+  e(1, 2)@10.
 
   --
 
-  p_pos(A, B) <- p(A, B); 
-  p_pos(A, B)@next <- p_pos(A, B), -p_neg(A, B);
+  p_pos(A, B) :- p(A, B). 
+  p_pos(A, B)@next :- p_pos(A, B), -p_neg(A, B).
 
-  p(1,2)@101; 
-  p(1,3)@102; 
-  p_neg(1,2)@300;
+  p(1,2)@101. 
+  p(1,3)@102. 
+  p_neg(1,2)@300.
 
   -- 
 
-  seq(B)@next <- seq(A), successor(A,B), event(_); 
-  seq(A)@next <- seq(A), -event(_); 
-  seq(0);
+  seq(B)@next :- seq(A), successor(A,B), event(_). 
+  seq(A)@next :- seq(A), -event(_). 
+  seq(0).
 
 -}
 
 
 -- ---------------------------------------------------------------------
 
-data Annotation = ANone | ANext | ASpecific !Integer
-                deriving (Show)
-data Dedalus = FactList [Dedalus]
-             | Fact String [String] Annotation
-             | Rule Head [Body]
-             deriving (Show)
-
-data Head = Head String [String] Annotation
-             deriving (Show)
-
-data Body = BodyList [Body]
-          | Body String [String] Sign
-             deriving (Show)
-
-data Sign = Add | Negate
+data Dedalus = F Fact
+             | R Rule
              deriving (Show)
 
 -- ---------------------------------------------------------------------
 
-type P a = Parser Char a
+type Con = String
+type Id = Integer
 
-dedalusP :: P Dedalus
--- dedalusP = FactList <$> factP `sepBy` char ';'
-dedalusP = FactList <$> many factTP
+data Env = Env 
+    { envConMap :: Map String Con
+    , envNextFree :: !Id
+    } deriving (Show)
 
-factTP :: P Dedalus
+-- type P a = Parser Char a
+type P a = Parser Text Env a
+
+
+statements :: P ([Fact],[Rule])
+statements = do 
+    spaces
+    result <- (many statement) 
+    -- lineSep
+    -- eof
+    return $ partitionEithers result
+
+
+statement :: P (Either Fact Rule)
+statement = (Left <$> factTP)
+        <|> (Right <$> ruleTP) 
+
+dedalusP :: P [Dedalus]
+dedalusP = many (F <$> factTP <|> R <$> ruleTP)
+
+factTP :: P Fact
 factTP = do
   f <- factP
-  char ';'
+  char '.'
   return f
 
-factP :: P Dedalus
+factP :: P Fact
 factP = Fact <$> word <*> headParamsP  <*> annotationSpecificP
 
 headParamsP :: P [String]
@@ -106,20 +121,20 @@ annotationWordP = do
 
 -- ---------------
 
-ruleTP :: P Dedalus
+ruleTP :: P Rule
 ruleTP = do
   r <- ruleP
-  char ';'
+  char '.'
   return r
 
-ruleP :: P Dedalus
+ruleP :: P Rule
 ruleP = Rule <$> ruleHeadP <*> bodyP `sepBy` char ','
 
 ruleHeadP :: P Head
 ruleHeadP = do
   h <- headP
   s <- word
-  if (s /= "<-")
+  if (s /= ":-")
     then fail $ "missing <-, got [" ++ s ++ "]"
     else return h
   -- _ <-matchWord "<-"
@@ -159,7 +174,21 @@ bracketP beg end p = bracket (char beg) (char end) p
 spaces  :: P ()
 spaces  = do {many (satisfy isSpace); return ()}
 
-parseDedalus :: String -> Dedalus
+lineSep :: P ()
+lineSep = spaced period -- <?> "."
+
+spaced :: P a -> P a
+spaced p = do
+  spaces
+  r <- p
+  spaces
+  return r
+
+period :: P ()
+period = char '.' >> return ()
+
+
+parseDedalus :: String -> [Dedalus]
 parseDedalus xs = case runParser dedalusP xs of
     (Left msg, _) -> error $ "[parseDedalus] " ++ msg
     (Right x, []) -> x
@@ -179,7 +208,9 @@ tp parser xs = case runParser parser xs of
         "[parser] tokens not consumed: " ++ ys
 
 
-tt = parseDedalus "a(C)@1;b(A)@23;c(A,B)@100;"
+tt = parseDedalus "a(C)@1.b(A)@23.c(A,B)@100."
 
--- tb = tp ruleTP "p(A, B)@2 <- e(A, B);"
-tb = tp ruleTP "p_pos(A, B)@next <- p_pos(A, B), -p_neg(A, B);"
+-- tb = tp ruleTP "p(A, B)@2 <- e(A, B)."
+tb = tp ruleTP "p_pos(A, B)@next :- p_pos(A, B), -p_neg(A, B)."
+
+pd = tp dedalusP

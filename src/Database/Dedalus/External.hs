@@ -50,3 +50,8 @@ buildEdb tuples = fromJust maybeDb
 
 -- ---------------------------------------------------------------------
 
+
+mkRule dbName dbTupleLength facts = makeDatabase $ do
+  db <- addRelation dbName dbTupleLength
+  mapM_ (assertFact db) facts
+

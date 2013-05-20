@@ -22,9 +22,12 @@ executable hdedalus
                      , containers
                      , datalog
                      , hashable
+                     , haskeline
                      , hedn
                      , HUnit
+                     , mtl
                      , polyparse
+                     , pretty
                      , test-framework
                      , test-framework-hunit
                      , text
