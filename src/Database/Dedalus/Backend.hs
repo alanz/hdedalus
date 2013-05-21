@@ -27,8 +27,7 @@ data Rule = Rule Head [Body]
 data Head = Head String [String] Annotation
              deriving (Show,Eq)
 
-data Body = BodyList [Body]
-          | Body String [String] Sign
+data Body = Body String [String] Sign
              deriving (Show,Eq)
 
 data Sign = Add | Negate

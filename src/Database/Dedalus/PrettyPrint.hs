@@ -9,7 +9,7 @@ import Text.PrettyPrint (($$),(<>),(<+>))
 
 import Control.Applicative
 
--- import Backend
+import Database.Dedalus.Backend
 
 class Pretty p where
     doc :: p -> PP.Doc
@@ -30,6 +30,25 @@ instance Pretty a => Pretty (Atom a) where
 instance Pretty Pat where
     doc (Pat p) = doc p 
     doc (Not p) = PP.text "\\+" <+> doc p
+-}
+
+instance Pretty Sign where
+  doc Add    = PP.empty
+  doc Negate = PP.text "!"
+
+instance Pretty Annotation where
+  doc ANone         = PP.empty
+  doc ANext         = PP.text "@next"
+  doc (ASpecific i) = PP.text "@" <> PP.integer i
+
+instance Pretty Head where
+  doc (Head name params annot) = PP.text name <> PP.parens (PP.hsep $ PP.punctuate PP.comma (PP.text <$> params)) <> doc annot
+
+instance Pretty Fact where
+  doc (Fact name params annot) = PP.text name <> PP.parens (PP.hsep $ PP.punctuate PP.comma (PP.text <$> params)) <> doc annot
+
+instance Pretty Body where
+  doc (Body name params sign) = doc sign <> PP.text name <> PP.parens (PP.hsep $ PP.punctuate PP.comma (PP.text <$> params))
 
 instance Pretty Rule where
     doc (Rule h b) = 
@@ -43,6 +62,7 @@ instance Pretty [Fact] where
     doc [] = PP.empty
     doc (a:as) = doc a <> PP.text "." $$ doc as
 
+{-
 instance Pretty ([Fact],[Rule]) where
     doc (x,y) = doc x $$ doc y
 

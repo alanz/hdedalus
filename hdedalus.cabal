@@ -26,7 +26,8 @@ executable hdedalus
                      , hedn
                      , HUnit
                      , mtl
-                     , polyparse
+                     , parsec
+                     -- , polyparse
                      , pretty
                      , test-framework
                      , test-framework-hunit
