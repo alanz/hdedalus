@@ -38,8 +38,6 @@ import qualified Data.List as L
 -- Dummy declarations for now
 data DB = DB { fullyExtended :: Bool, db :: Datalog }
 
--- getState = stGet
-
 -- ---------------------------------------------------------------------
 
 combine :: Datalog -> Datalog -> Datalog
