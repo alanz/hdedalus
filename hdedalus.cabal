@@ -33,3 +33,4 @@ executable hdedalus
                      , test-framework-hunit
                      , text
                      , time
+                     , unordered-containers

@@ -18,6 +18,7 @@ import Data.Monoid
 import Data.Text hiding (map,concatMap)
 import Database.Datalog
 import Database.Dedalus.Backend
+import Database.Dedalus.Datalog
 import Database.Dedalus.Parser
 import Database.Dedalus.PrettyPrint
 import Database.Dedalus.Wrapper
@@ -35,30 +36,6 @@ import qualified Data.List as L
 
 -- ---------------------------------------------------------------------
 
--- Dummy declarations for now
-data DB = DB { fullyExtended :: Bool, db :: Datalog }
-
--- ---------------------------------------------------------------------
-
-combine :: Datalog -> Datalog -> Datalog
-combine a b = g (mappend a b) where
-  g (x, y) = (L.nub x, L.nub y)
-
--- return all derived facts, but don't commit them
-derive :: State DB DB
-derive = do
-  DB b db <- get
-  return $ if b then DB b db
-                -- else DB True (combine db ((uncurry seminaive db, [])))
-                else DB b db
-
-instance Backend (State DB) where
-   facts = liftM (fst . db) derive
-   rules = liftM (snd . db) derive
-   memoAll = derive >>= put
-   declare db = modify (\(DB _ db0) -> DB False (combine db0 db))
-
--- ---------------------------------------------------------------------
 
 main :: IO ()
 main = do
@@ -71,10 +48,18 @@ type ReplS = Env
 showDoc :: Pretty p => p -> String
 showDoc = show . doc
 
+dlCmd :: Backend f => f (Database ValueInfo)
+dlCmd = do
+  d <- fullDb
+  let r = mkDb $ fst d
+  return r
+
 commands2 :: Backend f => [(String, f String)]
-commands2 = [
-  ("facts", liftM showDoc facts),
-  ("rules", liftM showDoc rules)
+commands2 =
+  [ ("facts", liftM showDoc facts)
+  , ("rules", liftM showDoc rules)
+  , ("dump",  liftM show    fullDb)
+  , ("dl",    liftM show    dlCmd )
   ]
 
 runCommands :: Backend f => (forall a . f a -> IO a) -> [(String, IO ())]
@@ -90,7 +75,7 @@ repl io = let
    parser = do
      db <- statements
      env2 <- getState
-     return (db, env2)
+     return (toDatalog db, env2)
 
    handleResult :: (Datalog, Env) -> IO Env
    handleResult (db, env) = trans io $ declare db >> return env
@@ -101,7 +86,6 @@ repl io = let
      return env
 
    parse :: Env -> String -> IO Env
-   -- parse env line = either (error . show) handleResult $
    parse env line = either (handleError env) handleResult $
      runParser parser env "<console>" (T.pack line)
 

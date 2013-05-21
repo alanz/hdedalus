@@ -21,6 +21,21 @@ import qualified Data.List as L
 import qualified Data.Map as M
 import Data.Map (Map)
 import Data.List
+import Data.Hashable
+import Data.HashMap.Strict ( HashMap )
+
+
+-- ---------------------------------------------------------------------
+
+type AtomSelector = (String,Int)
+
+toDatalog :: ([Fact],[Rule]) -> Datalog
+toDatalog (fs,rs) = (fs',rs')
+  where
+    fs' = M.fromListWith (++) $ map (\f -> (atomSelector f,[f])) fs
+    rs' = M.fromListWith (++) $ map (\r@(Rule a _) -> (atomSelector a,[r])) rs
+
+-- ---------------------------------------------------------------------
 
 on :: (a -> a -> b) -> (c -> a) -> c -> c -> b
 on (*) f x y = f x * f y
@@ -48,7 +63,8 @@ data Term = Var Var | Con Con deriving (Show,Eq,Ord)
 data Atom t = Atom Con [t] deriving (Show,Eq,Ord) --{ atomPred :: Con, atomTerms :: [t] } deriving (Show,Eq)
 
 type Fact = Atom Con
-type Datalog = ([Fact], [Rule])
+-- type Datalog = ([Fact], [Rule])
+type Datalog = (M.Map AtomSelector [Fact], M.Map AtomSelector [Rule])
 type Subst = [(Var,Con)]
 
 atomPred :: Atom t -> Con
@@ -58,7 +74,11 @@ atomArgs (Atom _ t) = t
 atomName :: Atom t -> String
 atomName (Atom (C _ s) _) = s
 atomId :: Atom t -> Int
-atomId (Atom (C id _) _) = id
+atomId (Atom (C aid _) _) = aid
+
+-- |Provide a selector that is unique for each (name,arity) of an atom
+atomSelector :: Atom t -> AtomSelector
+atomSelector a@(Atom _ terms) = ((atomName a),length terms)
 
 data Pat = Not (Atom Term) | Pat (Atom Term) deriving (Show,Eq,Ord)
 patAtom :: Pat -> Atom Term
@@ -134,3 +154,5 @@ class Monad f => Backend f where
   -- add new facts and rules to knowledge base
   declare :: Datalog -> f () 
 
+  -- ++AZ++ debugging
+  fullDb :: f Datalog
