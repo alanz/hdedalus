@@ -123,6 +123,10 @@ fact :: P (Atom Con)
 fact = atom con
   <?> "fact"
 
+queryP :: P (Atom Term)
+queryP = atom term
+  <?> "query"
+
 rule :: P Rule
 rule = do
     head <- atom term
@@ -168,6 +172,7 @@ statements = do
 
 run :: String -> Either ParseError ([Fact],[Rule])
 run = runParser statements initialEnv "-" . T.pack
+
 -- ---------------------------------------------------------------------
 
 

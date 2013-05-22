@@ -16,7 +16,6 @@ import Data.IORef
 import Data.Maybe
 import Data.Monoid
 import Data.Text hiding (map,concatMap)
-import Database.Datalog
 import Database.Dedalus.Backend
 import Database.Dedalus.Datalog
 import Database.Dedalus.Parser
@@ -29,6 +28,7 @@ import qualified Data.Text as T
 import qualified Data.Map as Map
 import Data.Map (Map)
 import qualified Data.List as L
+import qualified Database.Datalog as D
 
 -- This code is initially based on
 -- https://github.com/pchiusano/datalog-refactoring/blob/master/src/REPL.hs
@@ -48,7 +48,7 @@ type ReplS = Env
 showDoc :: Pretty p => p -> String
 showDoc = show . doc
 
-dlCmd :: Backend f => f (Database ValueInfo)
+dlCmd :: Backend f => f (D.Database ValueInfo)
 dlCmd = do
   d <- fullDb
   let r = mkDb $ fst d
@@ -73,12 +73,24 @@ repl io = let
 
    parser :: P (Datalog, Env)
    parser = do
-     db <- statements
+     adb <- statements
      env2 <- getState
-     return (toDatalog db, env2)
+     return (toDatalog adb, env2)
+
+   parserQ :: P (Atom Term, Env)
+   parserQ = do
+     q <- queryP
+     env2 <- getState
+     return (q, env2)
+
+   handleResultQ :: (Atom Term, Env) -> IO Env
+   handleResultQ (q, env) = do
+     res <- trans io $ query q 
+     putStrLn $ "Query result:" ++ (show res)
+     return env
 
    handleResult :: (Datalog, Env) -> IO Env
-   handleResult (db, env) = trans io $ declare db >> return env
+   handleResult (adb, env) = trans io $ declare adb >> return env
 
    handleError :: Env -> ParseError -> IO Env
    handleError env err = do
@@ -89,24 +101,31 @@ repl io = let
    parse env line = either (handleError env) handleResult $
      runParser parser env "<console>" (T.pack line)
 
+   parseQ :: Env -> String -> IO Env
+   parseQ env line = either (handleError env) handleResultQ $
+     runParser parserQ env "<console>" (T.pack line)
+
+
    loop :: [(String, IO ())]
+        -> (Env -> String -> IO Env)
         -> (Env -> String -> IO Env)
         -> Env
         -> InputT IO Env
-   loop commands stmt env = do
+   loop commands stmt doQuery env = do
      minput <- getInputLine "% "
      case minput of
        Nothing -> return env
        Just ":q" -> return env
+       Just ('?' : input) -> lift (doQuery env input) >>= \env2 -> loop commands stmt doQuery env2
        Just (':' : t) ->
          maybe (unrecognized t) lift (lookup t commands) >>
-         loop commands stmt env
-       Just input -> lift (stmt env input) >>= \env2 -> loop commands stmt env2
+         loop commands stmt doQuery env
+       Just input -> lift (stmt env input) >>= \env2 -> loop commands stmt doQuery env2
 
    unrecognized c = outputStrLn ("Unrecognized command " ++ c)
 
    in
-   runInputT defaultSettings $ loop table parse initialEnv >> return ()
+   runInputT defaultSettings $ loop table parse parseQ initialEnv >> return ()
 
 
 data NT m n = NT { trans :: forall a . m a -> n a }
