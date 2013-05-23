@@ -51,13 +51,14 @@ showDoc = show . doc
 dlCmd :: Backend f => f (D.Database ValueInfo)
 dlCmd = do
   d <- fullDb
-  let r = mkDb $ fst d
+  let r = mkDb $ dlFacts d
   return r
 
 commands2 :: Backend f => [(String, f String)]
 commands2 =
   [ ("facts", liftM showDoc facts)
   , ("rules", liftM showDoc rules)
+  , ("last",  liftM showDoc queries)
   , ("dump",  liftM show    fullDb)
   , ("dl",    liftM show    dlCmd )
   ]
@@ -86,7 +87,8 @@ repl io = let
    handleResultQ :: (Atom Term, Env) -> IO Env
    handleResultQ (q, env) = do
      res <- trans io $ query q 
-     putStrLn $ "Query result:" ++ (show res)
+     -- res is [(Var,Con)], where the Con has Id -1
+     putStrLn $ "Query result:\n" ++ (showDoc res)
      return env
 
    handleResult :: (Datalog, Env) -> IO Env

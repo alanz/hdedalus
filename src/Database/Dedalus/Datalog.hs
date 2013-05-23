@@ -39,12 +39,13 @@ data DB = DB { fullyExtended :: Bool, db :: Datalog }
 combine :: Datalog -> Datalog -> Datalog
 -- combine a b = g (mappend a b) where
 --  g (x, y) = (L.nub x, L.nub y)
-combine (fa,ra) (fb,rb) = (f,r)
+combine (DL fa ra qra) (DL fb rb qrb) = (DL f r qr)
   where
     f = Map.unionWith combineOp fa fb
     r = Map.unionWith combineOp ra rb
 
     combineOp as bs = L.nub (as++bs)
+    qr = L.nub (qra++qrb)
 
 -- return all derived facts, but don't commit them
 derive :: State DB DB
@@ -56,16 +57,22 @@ derive = do
 
 instance Backend (State DB) where
    -- facts = liftM (fst . db) derive
-   facts = liftM (L.concat . Map.elems . fst . db) derive
-   rules = liftM (L.concat . Map.elems . snd . db) derive
+   facts   = liftM (L.concat . Map.elems . dlFacts . db) derive
+   rules   = liftM (L.concat . Map.elems . dlRules . db) derive
+   queries = liftM (                     dlQueries . db) derive
+
    memoAll = derive >>= put
    declare adb = modify (\(DB _ db0) -> DB False (combine db0 adb))
 
    -- query :: Atom Term -> f (Maybe Subst)
+   -- query :: Atom Term -> f ([Fact]
    query q = do 
      DB _b adb <- get
-     let res = executeQuery q adb
-     return $ fromMaybe Nothing res
+     let r= (executeQuery q adb) :: Maybe [Fact]
+     let res = fromMaybe [] r
+     -- TODO: currently replacing old query results, perhaps keep them?
+     put (DB False (adb { dlQueries = [(q,res)] }))
+     return res
 
    fullDb = do 
       d <- get
@@ -74,15 +81,21 @@ instance Backend (State DB) where
 -- ---------------------------------------------------------------------
 
 executeQuery :: (D.Failure D.DatalogError m)
-   => Atom Term -> Datalog -> m (Maybe Subst)
-executeQuery q (factMap,ruleMap) = do
+   => Atom Term -> Datalog -> m ([Fact])
+executeQuery q (DL factMap ruleMap _qr) = do
   let
      edb = mkDb factMap
      dq  = mkQuery ruleMap q
   r <- D.queryDatabase edb dq
   -- TODO: identify the original Con Id value
-  let res = map (\[VV var,VV val] -> (V $ T.unpack var,C 0 (T.unpack val)) ) r
-  return $ Just res
+  --       will have to post-process, it is not available in this environment
+  -- let res = map (\[VV var,VV val] -> (V $ T.unpack var,C (-1) (T.unpack val)) ) r
+
+  let res = map oneFact r
+      oneFact bs = Atom (atomPred q) vars
+        where vars = map (\(VV v) -> C (-1) (T.unpack v)) bs
+
+  return res
 
 {-
 
@@ -143,12 +156,12 @@ mkQuery :: (D.Failure D.DatalogError m )
   => Map.Map AtomSelector [Rule] -> Atom Term 
   -> D.QueryBuilder m ValueInfo (D.Query ValueInfo)
 mkQuery ruleMap q = do
- -- Identify all the inferencePredicate relations
- -- Identify all the relationPredicate relations
 
- rels <- mapM makeQueryRelation $ Map.toList ruleMap
+ mapM_ makeQueryRelation $ Map.toList ruleMap
 
- D.issueQuery (L.head rels) [D.Atom (VV "b"),D.LogicVar "X"]
+ qrel <- toRel q
+ D.issueQuery qrel (headVars q)
+ -- D.issueQuery qrel [D.Atom (VV "b"),D.LogicVar "X"]
 
 {-
       parentOf <- relationPredicateFromName "parentOf"
@@ -175,21 +188,29 @@ makeQueryRelation ((name,arity),rules) = do
 
 -- ---------------------------------------------------------------------
 
+toRel :: D.Failure D.DatalogError m
+  => Atom t -> D.QueryBuilder m a D.Relation
+toRel x = D.inferencePredicate (relationName ((atomName x),arity))
+    where arity = L.length $ atomArgs x
+
+headVars :: Atom Term -> [D.Term ValueInfo]
+headVars h = map toDTerm $ atomArgs h 
+
+toDTerm :: Term -> D.Term ValueInfo
+-- Must be either D.LogicVar or D.Atom
+toDTerm (Var n) = D.LogicVar (T.pack $ varName n)
+toDTerm (Con n) = D.Atom (VV (T.pack $ conName n))
+
+
+-- ---------------------------------------------------------------------
+
 queryClause ::
   D.Failure D.DatalogError m =>
   D.Relation -> Rule -> Map Text (D.Term ValueInfo) -> D.QueryBuilder m ValueInfo ()
 queryClause rel rule vars = do
   let (Rule head body) = rule
 
-  let headVars = map toDTerm $ atomArgs head -- Must be either
-                                             -- D.LogicVar or D.Atom
-      toDTerm (Var n) = D.LogicVar (T.pack $ varName n)
-      toDTerm (Con n) = D.Atom (VV (T.pack $ conName n))
-
   let bodyTerms = map toDClause body
-
-      toRel x = D.inferencePredicate (relationName ((atomName x),arity))
-         where arity = L.length $ atomArgs x
 
       toDClause (Pat term) = do
         rel <- toRel term
@@ -200,7 +221,7 @@ queryClause rel rule vars = do
         let clauses = map toDTerm $ atomArgs term
         D.negLit rel clauses
 
-  (rel, headVars) D.|- bodyTerms
+  (rel, headVars head) D.|- bodyTerms
 
 -- ---------------------------------------------------------------------
 
@@ -225,14 +246,14 @@ td :: IO ()
 td = do
   let (Right db) = run "a(b,c). a(x,y,z). p(X,Z) :- p(X,Y), p(Y,Z). p(X,Y) :- a(X,Y)."
   let ddb = toDatalog db
-  let r = mkDb $ fst ddb
+  let r = mkDb $ dlFacts ddb
   putStrLn $ "(ddb,r)=" ++ (show (ddb,r))
   return ()
 
 tq :: IO ()
 tq = do
   let (Right db) = run "a(b,c). a(X,Y) :- a(X,Y)."
-  let ddb@(factMap,ruleMap) = toDatalog db
+  let ddb@(DL factMap ruleMap _) = toDatalog db
   let pq = tp queryP "a(b,X)."
 
   let edb = mkDb factMap

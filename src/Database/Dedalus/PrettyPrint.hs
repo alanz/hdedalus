@@ -49,3 +49,6 @@ instance Pretty ([Fact],[Rule]) where
 instance Pretty [(Var,Con)] where
     doc vs = PP.vcat $ map (\(v,n) -> doc v <+> PP.text "=" <+> doc n) vs  
 
+instance Pretty [QueryResult] where
+  doc [] = PP.text "no queries"
+  doc rs = PP.vcat $ map (\(q,qr) -> doc q <+> PP.text " : " <+> doc qr) rs

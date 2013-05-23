@@ -13,6 +13,7 @@ module Database.Dedalus.Backend
   ) -} where
 
 import Control.Monad
+import Data.Monoid
 import Data.Maybe
 import Data.List
 
@@ -30,7 +31,7 @@ import Data.HashMap.Strict ( HashMap )
 type AtomSelector = (String,Int)
 
 toDatalog :: ([Fact],[Rule]) -> Datalog
-toDatalog (fs,rs) = (fs',rs')
+toDatalog (fs,rs) = DL fs' rs' []
   where
     fs' = M.fromListWith (++) $ map (\f -> (atomSelector f,[f])) fs
     rs' = M.fromListWith (++) $ map (\r@(Rule a _) -> (atomSelector a,[r])) rs
@@ -64,8 +65,18 @@ data Atom t = Atom Con [t] deriving (Show,Eq,Ord) --{ atomPred :: Con, atomTerms
 
 type Fact = Atom Con
 -- type Datalog = ([Fact], [Rule])
-type Datalog = (M.Map AtomSelector [Fact], M.Map AtomSelector [Rule])
+data Datalog = DL { dlFacts :: M.Map AtomSelector [Fact]
+                  , dlRules :: M.Map AtomSelector [Rule]
+                  , dlQueries :: [QueryResult]
+                  } deriving (Show)
+type QueryResult = (Atom Term,[Fact])
+
+instance Monoid Datalog where
+  mempty = DL M.empty M.empty []
+  mappend (DL af ar aq) (DL bf br bq) 
+      = DL (af `mappend` bf) (ar `mappend` br) (aq `mappend` bq)
 type Subst = [(Var,Con)]
+
 
 atomPred :: Atom t -> Con
 atomPred (Atom x _) = x
@@ -138,6 +149,10 @@ class Monad f => Backend f where
   rulesFor :: Name -> f [Rule]
   rulesFor n = liftM (filter (\r -> atomName (ruleHead r) == n)) rules
 
+  -- the list of recent queries and results
+  queries :: f [QueryResult]
+
+
   -- only memoize facts for the given table
   -- memo :: Name -> f ()
 
@@ -146,13 +161,13 @@ class Monad f => Backend f where
 
   -- returns the first set of variable bindings for which the assertion holds, 
   -- or Nothing if no facts unify with the given query
-  query :: Atom Term -> f (Maybe Subst)
-  query q = do 
-    fs <- facts
-    return $ join (find isJust (map (\f -> unifyAtom [] q f) fs))
+  query :: Atom Term -> f [Fact]
 
   -- add new facts and rules to knowledge base
   declare :: Datalog -> f () 
+
+  -- stash the results of a query, for possibly inclusion in the edb
+  -- stash :: QueryResult -> f ()
 
   -- ++AZ++ debugging
   fullDb :: f Datalog
