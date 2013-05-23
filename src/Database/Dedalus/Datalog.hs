@@ -2,6 +2,7 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- |Provide an interface to https://github.com/travitch/datalog for
 -- the backend
@@ -62,9 +63,9 @@ instance Backend (State DB) where
 
    -- query :: Atom Term -> f (Maybe Subst)
    query q = do 
-     DB b adb <- get
+     DB _b adb <- get
      let res = executeQuery q adb
-     return res
+     return $ fromMaybe Nothing res
 
    fullDb = do 
       d <- get
@@ -72,13 +73,16 @@ instance Backend (State DB) where
 
 -- ---------------------------------------------------------------------
 
-executeQuery :: Atom Term -> Datalog -> (Maybe Subst)
-executeQuery q (factMap,ruleMap) = res
-  where
+executeQuery :: (D.Failure D.DatalogError m)
+   => Atom Term -> Datalog -> m (Maybe Subst)
+executeQuery q (factMap,ruleMap) = do
+  let
      edb = mkDb factMap
-     dq = mkQuery ruleMap q
-     res = Just [(V "X",(C 0 "a"))]
-
+     dq  = mkQuery ruleMap q
+  r <- D.queryDatabase edb dq
+  -- TODO: identify the original Con Id value
+  let res = map (\[VV var,VV val] -> (V $ T.unpack var,C 0 (T.unpack val)) ) r
+  return $ Just res
 
 {-
 
@@ -135,7 +139,7 @@ toFact f = map (\p -> VV $ T.pack $ conName p) (atomArgs f)
 
 -- ---------------------------------------------------------------------
 
-mkQuery :: D.Failure D.DatalogError m 
+mkQuery :: (D.Failure D.DatalogError m )
   => Map.Map AtomSelector [Rule] -> Atom Term 
   -> D.QueryBuilder m ValueInfo (D.Query ValueInfo)
 mkQuery ruleMap q = do
@@ -144,7 +148,7 @@ mkQuery ruleMap q = do
 
  rels <- mapM makeQueryRelation $ Map.toList ruleMap
 
- D.issueQuery (L.head rels) []
+ D.issueQuery (L.head rels) [D.Atom (VV "b"),D.LogicVar "X"]
 
 {-
       parentOf <- relationPredicateFromName "parentOf"
@@ -175,8 +179,26 @@ queryClause ::
   D.Failure D.DatalogError m =>
   D.Relation -> Rule -> Map Text (D.Term ValueInfo) -> D.QueryBuilder m ValueInfo ()
 queryClause rel rule vars = do
-  let headVars = []
-  let bodyTerms = []
+  let (Rule head body) = rule
+
+  let headVars = map toDTerm $ atomArgs head -- Must be either
+                                             -- D.LogicVar or D.Atom
+      toDTerm (Var n) = D.LogicVar (T.pack $ varName n)
+      toDTerm (Con n) = D.Atom (VV (T.pack $ conName n))
+
+  let bodyTerms = map toDClause body
+
+      toRel x = D.inferencePredicate (relationName ((atomName x),arity))
+         where arity = L.length $ atomArgs x
+
+      toDClause (Pat term) = do
+        rel <- toRel term
+        let clauses = map toDTerm $ atomArgs term
+        D.lit    rel clauses
+      toDClause (Not term) = do
+        rel <- toRel term
+        let clauses = map toDTerm $ atomArgs term
+        D.negLit rel clauses
 
   (rel, headVars) D.|- bodyTerms
 
@@ -207,3 +229,18 @@ td = do
   putStrLn $ "(ddb,r)=" ++ (show (ddb,r))
   return ()
 
+tq :: IO ()
+tq = do
+  let (Right db) = run "a(b,c). a(X,Y) :- a(X,Y)."
+  let ddb@(factMap,ruleMap) = toDatalog db
+  let pq = tp queryP "a(b,X)."
+
+  let edb = mkDb factMap
+  -- rels <- mapM makeQueryRelation $ Map.toList ruleMap
+
+  r <- executeQuery pq ddb
+  putStrLn $ "(edb)=" ++ (show (edb))
+  putStrLn $ "(ddb)=" ++ (show (ddb))
+  putStrLn $ "(pq)=" ++ (show (pq))
+  putStrLn $ "(r)=" ++ (show (r))
+  return ()

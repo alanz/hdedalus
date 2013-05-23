@@ -124,7 +124,7 @@ fact = atom con
   <?> "fact"
 
 queryP :: P (Atom Term)
-queryP = atom term
+queryP = spaced (atom term)
   <?> "query"
 
 rule :: P Rule
