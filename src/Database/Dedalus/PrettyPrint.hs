@@ -33,6 +33,9 @@ instance Pretty Pat where
 instance Pretty Rule where
     doc (Rule h b) = 
         doc h <+> PP.text ":-" <+> (PP.hsep $ PP.punctuate PP.comma (doc <$> b))
+
+instance Pretty Fact where
+  doc (Fact f) = doc f
         
 instance Pretty [Rule] where
     doc [] = PP.empty

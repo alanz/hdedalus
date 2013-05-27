@@ -8,8 +8,9 @@ module Database.Dedalus.REPL
     ) where
 
 import Control.Applicative
-import Control.Monad.State
-import Control.Monad.Trans
+import Control.Monad
+import Control.Monad.Trans.Class
+import Control.Monad.Trans.State
 import Data.Char
 import Data.Hashable
 import Data.IORef
@@ -20,7 +21,7 @@ import Database.Dedalus.Backend
 import Database.Dedalus.Datalog
 import Database.Dedalus.Parser
 import Database.Dedalus.PrettyPrint
-import Database.Dedalus.Wrapper
+-- import Database.Dedalus.Wrapper
 import System.Console.Haskeline
 import Text.Parsec.Prim (runParser, getState, setState)
 import Text.Parsec.Error
@@ -66,7 +67,8 @@ commands2 =
 runCommands :: Backend f => (forall a . f a -> IO a) -> [(String, IO ())]
 runCommands run = map (\(a,b) -> (a, run b >>= putStrLn)) commands2
 
-ac f = get >>= lift . outputStrLn . show . doc . f . db . fst
+-- ac f = get >>= lift . outputStrLn . show . doc . f . db . fst
+ac f = get >>= lift . outputStrLn . show . doc . f . datalogDb . fst
 
 repl :: Backend f => LowerIO f -> IO ()
 repl io = let

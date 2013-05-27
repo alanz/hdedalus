@@ -4,16 +4,15 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |Parse Dedalus statements and convert them to internal representation
-
-module Database.Dedalus.Parser
-{-
-    (
-      statements
-    , Env(..)
-    , initialEnv
-    , P
-    ) -} where
-
+module Database.Dedalus.Parser (
+  P,
+  Env(..),
+  initialEnv,
+  statements,
+  queryP,
+  run,
+  tp
+  ) where
 
 import qualified Data.Text as T
 import Data.Text (Text)
@@ -22,14 +21,15 @@ import qualified Data.Map as M
 import Data.Map (Map)
 
 import Control.Applicative ((<$>))
-import Control.Monad.State
+import Control.Monad ( forM_, when )
 
 import Data.Either (partitionEithers)
 
 import Text.Parsec.Combinator
-import Text.Parsec.Prim hiding (State)
+import Text.Parsec.Prim
 import Text.Parsec.Error
 import Text.Parsec.Char
+import Text.ParserCombinators.Parsec.Token (natural)
 
 import Database.Dedalus.Backend
 
@@ -38,13 +38,13 @@ type P = Parsec Text Env
 instance (Monad m) => Stream Text m Char where
     uncons = return . T.uncons
 
-data Env = Env 
-    { envConMap :: Map String Con
+data Env = Env
+    { envConMap :: Map Literal Con
     , envNextFree :: !Id
     } deriving (Show)
 
 initialEnv :: Env
-initialEnv = Env { envNextFree = 0, envConMap = M.empty } 
+initialEnv = Env { envNextFree = 0, envConMap = M.empty }
 
 fresh :: P Int
 fresh = do
@@ -53,7 +53,7 @@ fresh = do
     putState $ env { envNextFree = free + 1 }
     return free
 
-mkCon :: String -> P Con
+mkCon :: Literal -> P Con
 mkCon k = do
     m <- envConMap <$> getState
     case M.lookup k m of
@@ -61,7 +61,7 @@ mkCon k = do
         Nothing -> do
             i <- fresh
             let result = C i k
-            modifyState $ \env -> env { envConMap = M.insert k result m } 
+            modifyState $ \env -> env { envConMap = M.insert k result m }
             return result
 
 -- parser
@@ -75,19 +75,31 @@ var = do
     ls <- many letter
     return $ V (l:ls)
 
-con :: P Con
-con = do
+conS :: P Con
+conS = do
     u <- lower <?> "constructor"
     us <- many letter
-    mkCon (u:us)
+    mkCon (S $ u:us)
+
+conI :: P Con
+conI = do
+    i <- number
+    mkCon (I i)
+
+con :: P Con
+con = conS
+  <|> conI
 
 neg :: P ()
 neg = (string "\\+" <|> string "~") >> return ()
 
 term :: P Term
-term =  Var <$> var 
+term =  Var <$> var
     <|> Con <$> con
 
+
+number :: P Integer
+number = do { ds <- many1 digit; return (read ds) } <?> "number"
 
 turnstile :: P ()
 turnstile = string ":-" >> return ()
@@ -104,23 +116,26 @@ open = (char '(' >> spaces >> return ()) <?> "("
 close :: P ()
 close = (spaces >> char ')' >> return ()) <?> ")"
 
+atSign :: P ()
+atSign = (spaces >> char '@' >> return ()) <?> "@"
+
 betweenParens :: P a -> P a
-betweenParens = between open close 
+betweenParens = between open close
 
 spaced :: P a -> P a
 spaced = between spaces spaces
 
 atom :: P a -> P (Atom a)
 atom t = do
-    pred <- con
-    Atom pred <$> (betweenParens (t `sepBy` spaced comma) <|> return [])
+    p <- con
+    Atom p <$> (betweenParens (t `sepBy` spaced comma) <|> return [])
   <?> "atom"
 
 pat :: P Pat
 pat = do { neg; spaces; Not <$> atom term } <|> Pat <$> atom term
-          
-fact :: P (Atom Con)
-fact = atom con
+
+fact :: P Fact
+fact = Fact <$> atom con
   <?> "fact"
 
 queryP :: P (Atom Term)
@@ -129,42 +144,43 @@ queryP = spaced (atom term)
 
 rule :: P Rule
 rule = do
-    head <- atom term
+    h <- atom term
     spaced turnstile <?> ":-"
     -- body <- pat `sepBy` many1 space
     body <- pat `sepBy` spaced comma
-    safe $ Rule head body
+    safe $ Rule h body
   <?> "rule"
 
 safe :: Rule -> P Rule
-safe rule@(Rule head body) = do
-        forM_ headVars $ \v -> 
+safe r@(Rule h body) = do
+        forM_ headVars $ \v ->
             when (v `notElem` bodyVars) $ do
                 unexpected $ "variable " ++ show (varName v) ++ " appears in head, but not occur positively in body"
-        forM_ subVars $ \v -> 
+        forM_ subVars $ \v ->
             when (v `notElem` bodyVars) $ do
                 unexpected $ "variable " ++ show (varName v) ++ " appears in a negated subgoal, but not occur positively in body"
-        return rule
+        return r
     where
         headVars, bodyVars, subVars :: [Var]
-        headVars = [ v | Var v <- atomArgs head ]
+        headVars = [ v | Var v <- atomArgs h ]
         bodyVars = concatMap posVars body
         subVars  = concatMap negVars body
 
         posVars, negVars :: Pat -> [Var]
-        posVars (Pat atom) = [ v | Var v <- atomArgs atom ]
+        posVars (Pat a) = [ v | Var v <- atomArgs a ]
         posVars (Not _) = []
-        negVars (Not atom) = [ v | Var v <- atomArgs atom ]
+        negVars (Not a) = [ v | Var v <- atomArgs a ]
         negVars (Pat _) = []
 
 statement :: P (Either Fact Rule)
 statement = try (Left <$> fact)
-            <|> (Right <$> rule) 
+            <|> (Right <$> rule)
+
 lineSep :: P ()
 lineSep = spaced period <?> "."
 
 statements :: P ([Fact],[Rule])
-statements = do 
+statements = do
     spaces
     result <- partitionEithers <$> statement `sepEndBy` lineSep
     eof
@@ -174,18 +190,13 @@ run :: String -> Either ParseError ([Fact],[Rule])
 run = runParser statements initialEnv "-" . T.pack
 
 -- ---------------------------------------------------------------------
+-- Test stuff
 
-
+tp :: Parsec Text Env a -> String -> a
 tp parser xs = case runParser parser initialEnv "-" (T.pack xs) of
     Left msg -> error $ "[parser] " ++ (show msg)
     Right x -> x
 
--- tt = parseDedalus "a(C)@1.b(A)@23.c(A,B)@100."
-
--- tb = tp ruleTP "p(A, B)@2 <- e(A, B)."
--- tb = tp ruleTP "p_pos(A, B)@next :- p_pos(A, B), -p_neg(A, B)."
-
--- pd = tp dedalusP
-
-t = run "x(B,C) :- a(B,C), a(B,c)."
+testCase :: Either ParseError ([Fact], [Rule])
+testCase = run "x(B,C) :- a(B,C), a(B,c)."
 
