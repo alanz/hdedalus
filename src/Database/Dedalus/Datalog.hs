@@ -99,7 +99,8 @@ executeQuery q (DL factMap ruleMap _qr) = do
   -- let res = map (\[VV var,VV val] -> (V $ T.unpack var,C (-1) (T.unpack val)) ) r
 
   let res = map oneFact r
-      oneFact bs = Fact $ Atom (atomPred q) vars
+      -- TODO: what is an appropriate TS value?
+      oneFact bs = Fact (Atom (atomPred q) vars) TSNext
         where vars = map toVar bs
               toVar (VV v) = C (-1) (S $ T.unpack v)
               toVar (VI v) = C (-1) (I v) 
@@ -160,7 +161,7 @@ makeRelation ((name,arity),relFacts) = do
   mapM_ (D.assertFact rel) (map toFact relFacts)
 
 toFact :: Fact -> [ValueInfo]
-toFact (Fact f) = map toValueInfo (atomArgs f)
+toFact (Fact f _) = map toValueInfo (atomArgs f)
   where
     toValueInfo c@(C _ (S _)) = VV $ T.pack $ conName c
     toValueInfo   (C _ (I i)) = VI i
@@ -225,7 +226,7 @@ queryClause :: D.Failure D.DatalogError m
             -> Map Text (D.Term ValueInfo)
             -> D.QueryBuilder m ValueInfo ()
 queryClause rel rule vars = do
-  let (Rule ruleHead ruleBody) = rule
+  let (Rule ruleHead ruleBody _) = rule
 
   let bodyTerms = map toDClause ruleBody
 
@@ -248,7 +249,7 @@ varsInRules = L.nub . go []
     go vs [] = vs
     go vs (r:rs) = go ((varsForRule r) ++ vs) rs
 
-    varsForRule (Rule _ terms) = map (\(Var v) -> v)
+    varsForRule (Rule _ terms _) = map (\(Var v) -> v)
                                  $ L.filter isVar $ concatMap atomArgs
                                        $ map patAtom terms
 

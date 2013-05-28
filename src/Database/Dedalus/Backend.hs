@@ -11,6 +11,7 @@ module Database.Dedalus.Backend
   , Term(..)
   , Atom(..)
   , AtomSelector
+  , TimeSuffix(..)
   , Pat(..)
   , Id
   , Backend(..)
@@ -38,8 +39,8 @@ type AtomSelector = (String,Int)
 toDatalog :: ([Fact],[Rule]) -> Datalog
 toDatalog (fs,rs) = DL fs' rs' []
   where
-    fs' = M.fromListWith (++) $ map (\f@(Fact ff ) -> (atomSelector ff,[f])) fs
-    rs' = M.fromListWith (++) $ map (\r@(Rule a _) -> (atomSelector a, [r])) rs
+    fs' = M.fromListWith (++) $ map (\f@(Fact ff _  ) -> (atomSelector ff,[f])) fs
+    rs' = M.fromListWith (++) $ map (\r@(Rule a  _ _) -> (atomSelector a, [r])) rs
 
 -- ---------------------------------------------------------------------
 
@@ -76,8 +77,13 @@ data Term = Var Var | Con Con deriving (Show,Eq,Ord)
 
 data Atom t = Atom Con [t] deriving (Show,Eq,Ord) --{ atomPred :: Con, atomTerms :: [t] } deriving (Show,Eq)
 
+data TimeSuffix = TSAsync
+                | TSNext
+                | TS !Integer
+                deriving (Show,Eq,Ord)
+ 
 -- type Fact = Atom Con
-data Fact = Fact (Atom Con) deriving (Show,Eq,Ord)
+data Fact = Fact (Atom Con) TimeSuffix deriving (Show,Eq,Ord)
 -- type Datalog = ([Fact], [Rule])
 data Datalog = DL { dlFacts :: M.Map AtomSelector [Fact]
                   , dlRules :: M.Map AtomSelector [Rule]
@@ -114,12 +120,12 @@ isNot :: Pat -> Bool
 isNot (Not _) = True
 isNot _ = False
 
-data Rule = Rule (Atom Term) [Pat] deriving (Show,Eq,Ord)
+data Rule = Rule (Atom Term) [Pat] TimeSuffix deriving (Show,Eq,Ord)
 ruleHead :: Rule -> Atom Term
-ruleHead (Rule x _) = x
+ruleHead (Rule x _ _) = x
 
 ruleBody :: Rule -> [Pat]
-ruleBody (Rule _ x) = x
+ruleBody (Rule _ x _) = x
 
 eitherTerm :: (Var -> a) -> (Con -> a) -> Term -> a
 eitherTerm f _ (Var x) = f x
@@ -152,10 +158,10 @@ class Monad f => Backend f where
 
   -- the list of all facts for the given name
   factsFor :: Name -> f [Fact]
-  factsFor n = liftM (filter (\(Fact x) -> atomName x == n)) facts
+  factsFor n = liftM (filter (\(Fact x _) -> atomName x == n)) facts
 
   factsForId :: Int -> f [Fact]
-  factsForId n = liftM (filter (\(Fact x) -> atomId x == n)) facts
+  factsForId n = liftM (filter (\(Fact x _) -> atomId x == n)) facts
 
   -- the list of all rules
   rules :: f [Rule]

@@ -20,7 +20,7 @@ import Data.Text (Text)
 import qualified Data.Map as M
 import Data.Map (Map)
 
-import Control.Applicative ((<$>))
+import Control.Applicative ((<$>),(<*>))
 import Control.Monad ( forM_, when )
 
 import Data.Either (partitionEithers)
@@ -134,8 +134,21 @@ atom t = do
 pat :: P Pat
 pat = do { neg; spaces; Not <$> atom term } <|> Pat <$> atom term
 
+explicitTime :: P TimeSuffix
+explicitTime = try $ do { atSign; TS <$> number }
+
+asyncTime :: P TimeSuffix
+asyncTime = try $ do { string "@async"; return TSAsync}
+
+nextTime :: P TimeSuffix
+nextTime = try $ do {string "@next"; return TSNext}
+
+anyTime :: P TimeSuffix
+anyTime = nextTime <|> asyncTime <|> explicitTime
+   
+
 fact :: P Fact
-fact = Fact <$> atom con
+fact = Fact <$> atom con <*> explicitTime
   <?> "fact"
 
 queryP :: P (Atom Term)
@@ -145,14 +158,15 @@ queryP = spaced (atom term)
 rule :: P Rule
 rule = do
     h <- atom term
+    ts <- option TSNext anyTime
     spaced turnstile <?> ":-"
     -- body <- pat `sepBy` many1 space
     body <- pat `sepBy` spaced comma
-    safe $ Rule h body
+    safe $ Rule h body ts
   <?> "rule"
 
 safe :: Rule -> P Rule
-safe r@(Rule h body) = do
+safe r@(Rule h body _) = do
         forM_ headVars $ \v ->
             when (v `notElem` bodyVars) $ do
                 unexpected $ "variable " ++ show (varName v) ++ " appears in head, but not occur positively in body"

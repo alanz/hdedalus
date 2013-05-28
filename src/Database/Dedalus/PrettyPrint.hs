@@ -31,11 +31,16 @@ instance Pretty Pat where
     doc (Not p) = PP.text "\\+" <+> doc p
 
 instance Pretty Rule where
-    doc (Rule h b) = 
-        doc h <+> PP.text ":-" <+> (PP.hsep $ PP.punctuate PP.comma (doc <$> b))
+    doc (Rule h b ts) = 
+        doc h <+> doc ts <+> PP.text ":-" <+> (PP.hsep $ PP.punctuate PP.comma (doc <$> b))
+
+instance Pretty TimeSuffix where
+  doc TSAsync = PP.text "@async"
+  doc TSNext  = PP.text "@next" -- TODO: what about implied next?
+  doc (TS v)  = PP.text "@" <> PP.text (show v)
 
 instance Pretty Fact where
-  doc (Fact f) = doc f
+  doc (Fact f ts) = doc f <+> doc ts
         
 instance Pretty [Rule] where
     doc [] = PP.empty
