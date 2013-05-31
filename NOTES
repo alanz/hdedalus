@@ -54,3 +54,101 @@ d. Peers have or can get a copy of the backing db
 
 
 
+-- --------------------------------------------------
+
+Dedalus desugaring
+------------------
+
+Rules only are desugared, facts MUST have a specific time annotation.
+
+a) If no specific time annotation, it is implicit in all predicates
+
+  toggle(1) :- state(0). 
+    => toggle(1, T) :- state(0, T). 
+
+  toggle(0) :- state(1). 
+    => toggle(0, T) :- state(1, T). 
+
+b) The @next annotation brings in a successor relation for indictive rules
+
+  state(X)@next :- toggle(X). 
+    => state(X, S) :- toggle(X, T), succ(T, S). 
+
+c) The @async annotation brings in the choice operator
+
+  announce(X)@async :- toggle(X).
+    => announce(X, S) :- toggle(X, T), choice({X,T}, {S}).
+
+
+succ(T,S) holds if S == T+1
+
+choice({X, T}, {S}), indicates that for each pair of assignments to
+  variables {X, T}, a value S is non-deterministically chosen. In
+  practice S is the time value at the receiving node, after
+  communication.
+
+Queue in Dedalus
+----------------
+
+q(V,R)@next :- q(V,R), !del_q(V,R). 
+qmin(V, min<R>) :- q(V,R). 
+p(V,R)@next :- q(V,R), qmin(V,R). 
+del_q(V,R) :- q(V,R), qmin(V,R).
+
+A queue implementation in Dedalus. Predicate q represents the queue;
+items are being dequeued into a predicate p. Throughout, the variable
+V is a value being enqueued, and the variable R represents a position
+(or priority) in the queue.
+
+
+Distributed Dedalus
+-------------------
+
+Add a constraint: first element of each predicate must be a network address.
+
+e.g.
+
+  path(@Src, Dest)@async :- link(@Src, X), path(@X, Dest).
+
+
+Asynchronous service (for web crawler)
+---------------------------------------
+
+pending(Id, Sender, P)      :- request(Id, Sender, P).
+pending(Id, Sender, P)@next :- pending(Id, Sender, P), !response(Id, Sender, _). 
+service_out(P, Out)@async   :- request(Id, Sender, P), service_in(P, Out). 
+response(Sender, Id, O)     :- pending(Id, Sender, P), service_out(P, O).
+
+
+
+Implementation of Distributed
+-----------------------------
+
+The variant is called NDlog (network datalog)
+
+The Pipelined Semi-Naive (PSN) evaluation strategy is described in
+
+  B. T. Loo, T. Condie, M. N. Garofalakis, D. E. Gay, J. M.
+  Hellerstein, P. Maniatis, R. Ramakrishnan, T. Roscoe, and I. Stoica.
+  Declarative networking: language, execution and optimization. In
+  SIGMOD Conference, pages 97–108, 2006.
+
+
+Shortest path query in NDlog
+-----------------------------
+
+SP1: path(@S,@D,@D,P,C) :- #link (@S,@D,C), 
+                        P = f_concatPath(link(@S,@D,C), nil).
+
+SP2: path(@S,@D,@Z,P,C) :- #link (@S,@Z,C1), 
+                        path(@Z,@D,@Z2,P2,C2), 
+                        C = C1 + C2,
+                        P = f_concatPath(link(@S,@Z,C1),P2).
+
+SP3: spCost(@S,@D,min<C>) :- path(@S,@D,@Z,P,C). 
+
+SP4: shortestPath(@S,@D,P,C) :- spCost(@S,@D,C), 
+                             path(@S,@D,@Z,P,C).
+
+Query: shortestPath(@S,@D,P,C).
+

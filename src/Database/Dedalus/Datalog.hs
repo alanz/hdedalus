@@ -21,6 +21,7 @@ import Data.Map (Map)
 import Data.Maybe
 import Data.Text hiding (map,concatMap)
 import Database.Dedalus.Backend
+import Database.Dedalus.DeSugar
 import Database.Dedalus.Parser
 import qualified Data.List as L
 import qualified Data.Map as Map
@@ -71,7 +72,6 @@ instance Backend (State DB) where
    memoAll = derive >>= put
    declare adb = modify (\(DB _ db0) -> DB False (combineDbs db0 adb))
 
-   -- query :: Atom Term -> f (Maybe Subst)
    -- query :: Atom Term -> f ([Fact]
    query q = do
      DB _b adb <- get
@@ -103,7 +103,7 @@ executeQuery q (DL factMap ruleMap _qr) = do
       oneFact bs = Fact (Atom (atomPred q) vars) TSNext
         where vars = map toVar bs
               toVar (VV v) = C (-1) (S $ T.unpack v)
-              toVar (VI v) = C (-1) (I v) 
+              toVar (VI v) = C (-1) (I v)
 
   return res
 
@@ -118,7 +118,7 @@ And rules:
 
 *Database.Dedalus.Parser> run "c(B,C) :- c(A,B),c(A,C)."
 Right ([],[Rule (Atom (C 0 "c") [Var (V "B"),Var (V "C")]) [Pat (Atom (C 0 "c") [Var (V "A"),Var (V "B")]),Pat (Atom (C 0 "c") [Var (V "A"),Var (V "C")])]])
-*Database.Dedalus.Parser> 
+*Database.Dedalus.Parser>
 
 
 A Datalog database, organised by name/arity
@@ -169,7 +169,8 @@ toFact (Fact f _) = map toValueInfo (atomArgs f)
 -- ---------------------------------------------------------------------
 
 mkQuery :: (D.Failure D.DatalogError m )
-  => Map.Map AtomSelector [Rule] -> Atom Term
+  => Map.Map AtomSelector [Rule] -- ^existing rule base
+  -> Atom Term                   -- ^the query predicate
   -> D.QueryBuilder m ValueInfo (D.Query ValueInfo)
 mkQuery ruleMap q = do
 
@@ -191,14 +192,15 @@ mkQuery ruleMap q = do
 
 -}
 
-makeQueryRelation :: D.Failure D.DatalogError m =>
-   ((String,Int),[Rule]) -> D.QueryBuilder m ValueInfo (D.Relation)
+makeQueryRelation :: D.Failure D.DatalogError m
+   => ((String,Int),[Rule])
+   -> D.QueryBuilder m ValueInfo (D.Relation)
 makeQueryRelation ((name,arity),qrules) = do
   rel <- D.inferencePredicate (relationName (name,arity))
   let varNames = map (T.pack . varName)  $ varsInRules qrules
   let vars = Map.fromList $ map (\n -> (n,D.LogicVar n)) varNames
 
-  mapM_ (\rule -> queryClause rel rule vars) qrules
+  mapM_ (\rule -> queryClause rel (desugar rule) vars) qrules
 
   return rel
 

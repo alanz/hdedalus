@@ -77,7 +77,8 @@ data Term = Var Var | Con Con deriving (Show,Eq,Ord)
 
 data Atom t = Atom Con [t] deriving (Show,Eq,Ord) --{ atomPred :: Con, atomTerms :: [t] } deriving (Show,Eq)
 
-data TimeSuffix = TSAsync
+data TimeSuffix = TSImplicit
+                | TSAsync
                 | TSNext
                 | TS !Integer
                 deriving (Show,Eq,Ord)

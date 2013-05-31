@@ -1,35 +1,35 @@
-{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE FlexibleInstances    #-}
+{-# LANGUAGE Rank2Types           #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE FlexibleInstances #-}
 
 module Database.Dedalus.REPL
     (
     repl
     ) where
 
-import Control.Applicative
-import Control.Monad
-import Control.Monad.Trans.Class
-import Control.Monad.Trans.State
-import Data.Char
-import Data.Hashable
-import Data.IORef
-import Data.Maybe
-import Data.Monoid
-import Data.Text hiding (map,concatMap)
-import Database.Dedalus.Backend
-import Database.Dedalus.Datalog
-import Database.Dedalus.Parser
-import Database.Dedalus.PrettyPrint
--- import Database.Dedalus.Wrapper
-import System.Console.Haskeline
-import Text.Parsec.Prim (runParser, getState, setState)
-import Text.Parsec.Error
-import qualified Data.Text as T
-import qualified Data.Map as Map
-import Data.Map (Map)
-import qualified Data.List as L
-import qualified Database.Datalog as D
+import           Control.Applicative
+import           Control.Monad
+import           Control.Monad.Trans.Class
+import           Control.Monad.Trans.State
+import           Data.Char
+import           Data.Hashable
+import           Data.IORef
+import           Data.Maybe
+import           Data.Monoid
+import           Data.Text                    hiding (concatMap, map)
+import           Database.Dedalus.Backend
+import           Database.Dedalus.DeSugar
+import           Database.Dedalus.Datalog
+import           Database.Dedalus.Parser
+import           Database.Dedalus.PrettyPrint
+import qualified Data.List                    as L
+import           Data.Map                     (Map)
+import qualified Data.Map                     as Map
+import qualified Data.Text                    as T
+import qualified Database.Datalog             as D
+import           System.Console.Haskeline
+import           Text.Parsec.Error
+import           Text.Parsec.Prim             (getState, runParser, setState)
 
 -- This code is initially based on
 -- https://github.com/pchiusano/datalog-refactoring/blob/master/src/REPL.hs
@@ -57,11 +57,12 @@ dlCmd = do
 
 commands2 :: Backend f => [(String, f String)]
 commands2 =
-  [ ("facts", liftM showDoc facts)
-  , ("rules", liftM showDoc rules)
-  , ("last",  liftM showDoc queries)
-  , ("dump",  liftM show    fullDb)
-  , ("dl",    liftM show    dlCmd )
+  [ ("facts",   liftM showDoc facts)
+  , ("rules",   liftM showDoc rules)
+  , ("desugar", liftM (showDoc . map desugar) rules)
+  , ("last",    liftM showDoc queries)
+  , ("dump",    liftM show    fullDb)
+  , ("dl",      liftM show    dlCmd )
   ]
 
 runCommands :: Backend f => (forall a . f a -> IO a) -> [(String, IO ())]
@@ -88,7 +89,7 @@ repl io = let
 
    handleResultQ :: (Atom Term, Env) -> IO Env
    handleResultQ (q, env) = do
-     res <- trans io $ query q 
+     res <- trans io $ query (desugarQuery q)
      -- res is [(Var,Con)], where the Con has Id -1
      putStrLn $ "Query result:\n" ++ (showDoc res)
      return env
@@ -120,7 +121,7 @@ repl io = let
      case minput of
        Nothing -> return env
        Just ":q" -> return env
-       Just ('?' : input) -> lift (doQuery env input) >>= \env2 -> loop commands stmt doQuery env2
+       Just ('?' : '-' : input) -> lift (doQuery env input) >>= \env2 -> loop commands stmt doQuery env2
        Just (':' : t) ->
          maybe (unrecognized t) lift (lookup t commands) >>
          loop commands stmt doQuery env

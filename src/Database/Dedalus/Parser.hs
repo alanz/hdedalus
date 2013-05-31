@@ -158,7 +158,7 @@ queryP = spaced (atom term)
 rule :: P Rule
 rule = do
     h <- atom term
-    ts <- option TSNext anyTime
+    ts <- option TSImplicit anyTime
     spaced turnstile <?> ":-"
     -- body <- pat `sepBy` many1 space
     body <- pat `sepBy` spaced comma
