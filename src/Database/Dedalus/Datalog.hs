@@ -218,7 +218,8 @@ headVars h = map toDTerm $ atomArgs h
 toDTerm :: Term -> D.Term ValueInfo
 -- Must be either D.LogicVar or D.Atom
 toDTerm (Var n) = D.LogicVar (T.pack $ varName n)
-toDTerm (Con n) = D.Atom (VV (T.pack $ conName n))
+toDTerm (Con (C _ (I iv))) = D.Atom (VI iv)
+toDTerm (Con n)            = D.Atom (VV (T.pack $ conName n))
 
 
 -- ---------------------------------------------------------------------
@@ -305,10 +306,11 @@ tqn = do
 
 tqs :: IO ()
 tqs = do
-  let (Right db) = run "a(b,0). a(X,Y) :- a(X,Y)."
+  let (Right db) = run "a(b,c,0)@0. a(X,Y,T) :- a(X,Y,T)."
   let ddb@(DL factMap ruleMap _) = toDatalog db
   -- let pq = tp queryP "a(b,X)."
-  let pq = tp queryP "a(b,X,T)."
+  -- let pq = tp queryP "a(b,X,T)."
+  let pq = tp queryP "a(b,X,0)."
 
   let edb = mkDb factMap
   -- rels <- mapM makeQueryRelation $ Map.toList ruleMap
