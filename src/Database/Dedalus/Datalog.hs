@@ -75,7 +75,8 @@ instance Backend (State DB) where
    -- query :: Atom Term -> f ([Fact]
    query q = do
      DB _b adb <- get
-     let r= (executeQuery q adb) :: Maybe [Fact]
+     -- let r= (executeQuery q adb) :: Maybe [Fact]
+     let r= (executeQuery q (desugar adb)) :: Maybe [Fact]
      let res = fromMaybe [] r
      -- TODO: currently replacing old query results, perhaps keep them?
      put (DB False (adb { dlQueries = [(q,res)] }))
@@ -200,7 +201,7 @@ makeQueryRelation ((name,arity),qrules) = do
   let varNames = map (T.pack . varName)  $ varsInRules qrules
   let vars = Map.fromList $ map (\n -> (n,D.LogicVar n)) varNames
 
-  mapM_ (\rule -> queryClause rel (desugar rule) vars) qrules
+  mapM_ (\rule -> queryClause rel rule vars) qrules
 
   return rel
 
@@ -291,6 +292,23 @@ tqn = do
   let (Right db) = run "a(b,0). a(X,Y) :- a(X,Y)."
   let ddb@(DL factMap ruleMap _) = toDatalog db
   let pq = tp queryP "a(b,X)."
+
+  let edb = mkDb factMap
+  -- rels <- mapM makeQueryRelation $ Map.toList ruleMap
+
+  r <- executeQuery pq ddb
+  putStrLn $ "(edb)=" ++ (show (edb))
+  putStrLn $ "(ddb)=" ++ (show (ddb))
+  putStrLn $ "(pq)=" ++ (show (pq))
+  putStrLn $ "(r)=" ++ (show (r))
+  return ()
+
+tqs :: IO ()
+tqs = do
+  let (Right db) = run "a(b,0). a(X,Y) :- a(X,Y)."
+  let ddb@(DL factMap ruleMap _) = toDatalog db
+  -- let pq = tp queryP "a(b,X)."
+  let pq = tp queryP "a(b,X,T)."
 
   let edb = mkDb factMap
   -- rels <- mapM makeQueryRelation $ Map.toList ruleMap

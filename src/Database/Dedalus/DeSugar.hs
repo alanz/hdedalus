@@ -4,14 +4,27 @@
 module Database.Dedalus.DeSugar
   (
     desugar
+  , desugarRule
+  , desugarFact
   , desugarQuery
   ) where
 
 import Database.Dedalus.Backend
+import qualified Data.Map as Map
 
 -- ---------------------------------------------------------------------
+-- Fact desugaring
 --
--- Rules only are desugared, facts MUST have a specific time annotation.
+--
+-- Facts MUST have a specific time annotation, this is added as the
+-- last value in the fact term
+--
+-- a(b,c)@3.
+--    => a(b,c,3).
+--
+--
+-- Rule desugaring
+--
 --
 -- a) If no specific time annotation, it is implicit in all predicates
 --
@@ -40,6 +53,7 @@ import Database.Dedalus.Backend
 --   communication.
 
 
+
 -- ---------------------------------------------------------------------
 -- Implicit
 -- ========
@@ -60,8 +74,8 @@ import Database.Dedalus.Backend
 --  ]
 --  TSImplicit
 
-desugar :: Rule -> Rule
-desugar (Rule lhs body (TSImplicit)) = Rule lhs' body' TSImplicit
+desugarRule :: Rule -> Rule
+desugarRule (Rule lhs body (TSImplicit)) = Rule lhs' body' TSImplicit
   where
     lhs' = appendT lhs
     body' = map appendTToPat body
@@ -84,7 +98,7 @@ desugar (Rule lhs body (TSImplicit)) = Rule lhs' body' TSImplicit
 --   , Pat (Atom (C 2 (S "succ")) [Var (V "T"),Var (V "S")])]
 --   TSImplicit
 
-desugar (Rule lhs body TSNext) = Rule lhs' body' TSImplicit
+desugarRule (Rule lhs body TSNext) = Rule lhs' body' TSImplicit
   where
     lhs' = appendS lhs
     body' = (map appendTToPat body) ++ [succST]
@@ -110,22 +124,25 @@ desugar (Rule lhs body TSNext) = Rule lhs' body' TSImplicit
 --   ]
 --   TSImplicit
 
-desugar (Rule lhs body (TSAsync)) = Rule lhs' body' TSImplicit
+desugarRule (Rule lhs body (TSAsync)) = Rule lhs' body' TSImplicit
   where
     lhs' = lhs
     body' = map appendTToPat body
 
 -- ---------------------------------------------------------------------
 
-desugar drule@(Rule _lhs _body (TS _specific))
+desugarRule drule@(Rule _lhs _body (TS _specific))
   = error $ "desugar attempted of specific time rule:" ++ (show drule)
 
 -- ---------------------------------------------------------------------
 
 -- Helpers
 appendS, appendT :: Atom Term -> Atom Term
-appendS (Atom c args) = Atom c (args++[tsVarS])
-appendT (Atom c args) = Atom c (args++[tsVarT])
+appendS (Atom c args)   = Atom c (args++[tsVarS])
+appendT (Atom c args)   = Atom c (args++[tsVarT])
+
+appendC :: Atom t -> t -> Atom t
+appendC (Atom c args) v = Atom c (args++[v])
 
 appendTToPat :: Pat -> Pat
 appendTToPat (Not p) = Not (appendT p)
@@ -142,3 +159,22 @@ tsVarS = Var (V ".S.")
 
 desugarQuery :: Atom Term -> Atom Term
 desugarQuery q = appendS q
+
+desugarFact :: Fact -> Fact
+desugarFact (Fact c ts@(TS timestamp))
+  = Fact (appendC c (C (-1) (I timestamp))) ts
+
+-- ---------------------------------------------------------------------
+
+desugar :: Datalog -> Datalog
+desugar (DL factMap ruleMap qs) = (DL factMap' ruleMap' qs)
+  where
+    factMap' = Map.fromList $ map desugarFactList $ Map.toList factMap
+    ruleMap' = Map.fromList $ map desugarRuleList $ Map.toList ruleMap
+
+    desugarFactList ((name,arity),facts)
+      = ((name,arity+1), map desugarFact facts)
+
+    desugarRuleList ((name,arity),rules)
+      = ((name,arity+1), map desugarRule rules)
+

@@ -59,7 +59,8 @@ commands2 :: Backend f => [(String, f String)]
 commands2 =
   [ ("facts",   liftM showDoc facts)
   , ("rules",   liftM showDoc rules)
-  , ("desugar", liftM (showDoc . map desugar) rules)
+  , ("df",      liftM (showDoc . map desugarFact) facts)
+  , ("dr",      liftM (showDoc . map desugarRule) rules)
   , ("last",    liftM showDoc queries)
   , ("dump",    liftM show    fullDb)
   , ("dl",      liftM show    dlCmd )
@@ -89,7 +90,7 @@ repl io = let
 
    handleResultQ :: (Atom Term, Env) -> IO Env
    handleResultQ (q, env) = do
-     res <- trans io $ query (desugarQuery q)
+     res <- trans io $ query q
      -- res is [(Var,Con)], where the Con has Id -1
      putStrLn $ "Query result:\n" ++ (showDoc res)
      return env
