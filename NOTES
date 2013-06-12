@@ -134,8 +134,8 @@ The Pipelined Semi-Naive (PSN) evaluation strategy is described in
   SIGMOD Conference, pages 97–108, 2006.
 
 
-Shortest path query in NDlog
------------------------------
+Shortest path query in NDlog (Fig 1)
+-------------------------------------
 
 SP1: path(@S,@D,@D,P,C) :- #link (@S,@D,C), 
                         P = f_concatPath(link(@S,@D,C), nil).
@@ -152,3 +152,218 @@ SP4: shortestPath(@S,@D,P,C) :- spCost(@S,@D,C),
 
 Query: shortestPath(@S,@D,P,C).
 
+
+-----------------------------------
+
+Definition 1 
+
+A location specifier is an attribute of type address in a predicate
+that indicates the network storage location of each tuple.
+
+
+Definition 2 
+
+A link relation is a stored (“extensional”) relation link(@src,@dst,
+...) representing the connectivity information of the network being
+queried.
+
+
+Definition 3 
+
+Local rules are rules that have the same location spec- ifier in each
+predicate, including the head.
+
+
+Definition 4 
+
+A link literal is a link relation that appears in the body of a rule
+prepended with the “#” symbol.
+
+
+Definition 5 
+
+A link-restricted rule is either a local rule, or a rule with the
+following properties:
+
+• There is exactly one link literal in the body
+
+• All other literals (including the head predicate) have their lo-
+  cation specifier set to either the first (source) or second (des-
+  tination) field of the link literal.
+
+
+Definition 6 
+
+ANetwork Datalog (NDlog) program is a Datalog program that satisfies
+the following syntactic constraints:
+
+1. Location specificity: Each predicate has a location specifier as
+   its first attribute
+
+2. Address type safety: A variable that appears once in a rule as an
+   address type must not appear elsewhere in the rule as a non-address
+   type.
+
+3. Stored link relations: Link relations never appear in the head of a
+   rule with a non-empty body (i.e., they are stored, not derived).
+
+4. Link-restriction: Any non-local rules in the program are
+   link-restricted by some link relation.
+
+
+semi-naive fixpoint
+-------------------
+
+[3] I. Balbin and K. Ramamohanarao. A Generalization of the
+    Differential Approach to Recursive Query Evaluation. Journal of Logic
+    Prog, 4(3):259–262, 1987.
+
+[4] F. Bancilhon. Naive Evaluation of Recursively Defined Relations.
+    On Knowledge Base Management Systems: Integrating AI and DB
+    Technologies, 1986.
+
+In semi-naıve (SN) evaluation, input tuples computed in the previous
+iteration of a recursive rule execu- tion are used as input in the
+current iteration to compute new tuples. Any new tuples that are
+generated for the first time in the current iteration are then used as
+input to the next iteration. This is repeated until a fixpoint is
+achieved (i.e., no new tuples are produced).
+
+The semi-naive rewritten rule for SP2 is
+
+SP2-1: pathnew(@S,@D,@Z,P,C) :- #link (@S,@Z,C1),
+                        pathold(@Z,@D,@Z2,P2,C2),
+                        C = C1 + C2,
+                        P = f concatPath(link(@S,@Z,C1),P2).
+
+
+(old one
+SP2: path(@S,@D,@Z,P,C) :- #link (@S,@Z,C1), 
+                        path(@Z,@D,@Z2,P2,C2), 
+                        C = C1 + C2,
+                        P = f_concatPath(link(@S,@Z,C1),P2).
+)
+
+
+
+Algorithm 1 Semi-naıve (SN) Evaluation in P2
+--------------------------------------------
+
+while ∃Bk.size>0 
+  ∀Bk where Bk.size>0, pkold <- Bk.flush()
+  execute all rule strands
+  foreach recursive predicate pj
+    pjold <- pjold union pjold
+    Bj <- pjnew - pjold
+    pj <- pjold union Bj
+    pjnew <- empty
+
+
+In the algorithm, Bk denotes the buffer for pk tuples generated in the
+previous iteration (pkold).
+
+Initially, pk, pkold, pkold and pknew are empty. 
+
+As a base case, we execute all the rules to generate the initial pk
+tuples, which are inserted into the corresponding Bk buffers.
+
+Each subsequent iteration of the while loop consists of flushing all
+existing pkold tuples from Bk and executing all rule tuples, which
+are used to update pjold, Bj and pj accordingly.
+
+Note that only new pj tuples generated in the current iteration are
+inserted into Bj for use in the next iteration. Fixpoint is reached
+when all buffers are empty.
+
+
+
+Distributed Plan Generation
+===========================
+
+Rewrite SP2:
+
+SP2a: linkD(@Z,@S,C) :- #link (@S,@Z,C).
+SP2b: path(@S,@D,@Z,P,C) :- #link (@Z,@S,C3),
+                            linkD(@Z,@S,C1),
+                            path(@Z,@D,@Z2,P2,C2),
+                            C = C1 + C2,
+                            P = f concatPath(linkD(@Z,@S,C1),P2).
+
+(old one
+SP2: path(@S,@D,@Z,P,C) :- #link (@S,@Z,C1), 
+                        path(@Z,@D,@Z2,P2,C2), 
+                        C = C1 + C2,
+                        P = f_concatPath(link(@S,@Z,C1),P2).
+)
+
+
+
+Algorithm 2 - Rule Localization Rewrite
+-----------------------------------------
+
+In the pseudocode, for simplicity, we assume that the location
+specifiers of all the body predicates are sorted (@S followed by @D);
+this can be done as a preprocessing step. The algorithm as presented
+here assumes that all links are bidirectional, and may add a #link
+(@D,@S) to a rewritten rule to allow for backward propagation of
+messages.
+
+
+proc RuleLocalization(R)
+while ∃ rule r ∈ R h(@L, ...) :− #link(@S,@D, ...),
+                              p1(@S,..),...pi(@S,..),
+                              pi+1(@D,..),pn(@D,..).
+   R.remove(r)
+   R.add(hS(@S,@D, ..) :− #link(@S,@D, ...),...pi(@S,..).)
+   R.add(hD(@D,@S, ..) :− hS(@S,@D, ..).)
+
+   if @L == @D
+     then R.add(h(@D,..) :- hD(@D,@S, ..),pi+1(@D,..),pn(@D,..).)
+     else R.add(h(@S,..) :- #link(@D,@S),
+                            hD(@D,@S, ..),pi+1(@D,..),pn(@D,..).)
+
+
+
+
+Pipelined Semi-Naive
+====================
+
+This relaxes semi-naive evaluation to the extreme of processing each
+tuple as it is received.
+
+
+Algorithm 3: Pipelined semi-naive evaluation
+---------------------------------------------
+
+while ∃Qk.size>0
+  tkoldi <- Qk.dequeueTuple()
+  foreach rule strand execution
+    dpjnewi+1 :- p1,..pk-1,tkoldi,pk+1,..,pn,b1,b2,..bm
+    foreach tjnewi+1 ∈ dpjnewi+1
+      if tjnewi+1 (not  ∈) pj
+        then pj <- pj union tjnewi+1
+             Qj.enqueueTuple(tjnewi+1)
+
+Each tuple, denoted t, has a superscript (old/new, i) where i is its
+corresponding iteration number in SN evaluation. Each processing step
+in PSN con- sists of dequeuing a tuple tkoldi from Qk and then using
+it as input into all corresponding rule strands.
+
+Each resulting tjnewi+1 tuple is pipelined, stored in its respective
+pj table (if a copy is not already there), and enqueued into Qj for
+further processing. 
+
+Note that in a distributed implementation, Qj can be a queue on
+another node, and the node that receives the new tuple can immediately
+process the tuple after the enqueue into Qj.
+
+To fully pipeline evaluation, we have also removed the distinctions
+between pjold and pj in the rules. Instead, a timestamp (or
+monotonically increasing sequence number) is added to each tuple at
+arrival, and the join operator matches each tuple only with tuples
+that have the same or older timestamp. This allows processing of
+tuples immediately upon arrival, and is natural for network message
+handling. This represents an alternative “book-keeping” strategy to
+the rewriting used in SN to ensure no repeated inferences. Note that
+the timestamp only needs to be assigned locally, since all the rules
+are localized.
